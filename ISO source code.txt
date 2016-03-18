@@ -1,0 +1,118 @@
+#libraries
+library(tm)
+library(wordcloud)
+library(RColorBrewer)
+library(stringi)
+library(plyr)
+
+#options, functions
+options(stringsAsFactors = FALSE)
+Sys.setlocale('LC_ALL','C')
+
+#remove all
+rm(list =ls() )
+
+#bigram token maker
+bigram.tokenizer <-function(x)
+  unlist(lapply(ngrams(words(x), 2), paste, collapse = " "), use.names = FALSE)
+
+clean.corpus<-function(corpus){
+  corpus <- tm_map(corpus, removePunctuation)
+  corpus <- tm_map(corpus, stripWhitespace)
+  corpus <- tm_map(corpus, removeNumbers)
+  corpus <- tm_map(corpus, removeWords, c(stopwords('english'),"many","little"))
+}
+#Read the Crime analysis file
+text<-read.csv('ISO.csv')
+#Importing negative words file
+neg = scan('negative-words.txt', what='character', comment.char=';')
+#Importing positive words file
+pos = scan('positive-words.txt', what='character', comment.char=';')
+#Importing county file
+County <- read.csv("C:/Users/Vivek/Desktop/Class Notes/R/County2.csv")
+#Building the corpus
+dd<-data.frame(id=text$ID,text=text$Title)
+custom.reader <- readTabular(mapping=list(content="text", id="id"))
+corpus <- VCorpus(DataframeSource(dd), readerControl=list(reader=custom.reader))
+corpus<-clean.corpus(corpus)
+
+#Create a tdm
+tdm.one <- as.matrix(TermDocumentMatrix(corpus))
+
+#Create a tdm for 2 consecutive words
+tdm<-TermDocumentMatrix(corpus, control=list(tokenize=bigram.tokenizer))
+tdm.two <- as.matrix(tdm)
+
+#To find out the capital texts
+Cap.text <- function(x) {
+  filt <- gsub(pattern = "[[:punct:]]", replacement = "", x)
+  filt <- gsub(pattern = "[[:digit:]]", replacement = "", filt)
+  #capital <- strsplit(filt," ")
+  a<-Cap(filt)
+  a <- unique(a[!is.na(a)])
+  
+}
+
+#ifelse(substring(capital,1,1) == toupper(substring(capital,1,1)),capital,NA)
+#capital
+Cap <- function(x) {
+  capital <- strsplit(x," ")[[1]]
+  ifelse(substring(capital,1,1) != tolower(substring(capital,1,1)),capital,NA)
+  
+}  
+
+
+simpleCap <- function(x) {
+  s <- strsplit(x, " ")[[1]]
+  z<-paste(toupper(substring(s, 1,1)), substring(s, 2),
+           sep="", collapse=" ")
+}  
+
+#Initial verification
+#It identifies whether the article contains fraud related activities.
+Initial <- function(a) {
+  filt <- gsub(pattern = "[[:punct:]]", replacement = "", a)
+  filt <- gsub(pattern = "[[:digit:]]", replacement = "", filt)
+  filt <- tolower(filt)[1]
+  capital <- unlist(strsplit(filt," "))
+  check <- match(capital,stopwords("en"))
+  exc.list <-!is.na(check)
+  words <-capital[!exc.list]
+  words <- words[nchar(words) >0]
+  #Identifies the number of negative term in the entire article
+  neg.matches = match(words, neg)
+  neg.matches = !is.na(neg.matches)
+  #Identifies the number of term misleading to the negative term
+  pos.matches = match(words, pos)
+  pos.matches = !is.na(pos.matches)
+  #Final score of the article
+  Score <- sum(neg.matches) - sum(pos.matches)
+  print(Score)
+}
+
+#Final Verification.
+#Based on the Suspects name conduct a sentimental analysis.
+#Split each sentences.
+Final.veri <- function(x) {
+  unlist(strsplit(x, ". ", fixed=TRUE))
+}
+
+#Find the Capital words from the text
+filt<- as.matrix(dd$text)
+Capital.words<-Cap.text(filt)
+
+#Calling the Initial Verification function
+Initial(filt)
+
+#Finding the consecutive words with capital letters
+b<-Capital.words[tolower(Capital.words) %in% rownames(tdm.one)]
+b<- unique(b[!is.na(b) & stri_length(b)>3])
+c<-grep(paste(tolower(b),collapse="|"), rownames(tdm.two), value = TRUE)
+s<-sapply(c, simpleCap,USE.NAMES = F)
+
+#Identifying the City or County location involved.
+b[tolower(b) %in% tolower(County[,1])]
+
+
+#Calling Final Verification function
+Final.Verification <-sapply(dd$text[1],Final.veri,USE.NAMES =  F)
